@@ -28,7 +28,7 @@ int paxos_replica::propose(const request_t& req)// on receiving a client request
 	
 	//create a new log record
 	order_t order;
-	order.seq = log.size();
+	order.seq = log.size()+x;
 	order.view = my_king; //my king should be myself
 	order.req = req;
 
@@ -41,7 +41,12 @@ int paxos_replica::propose(const request_t& req)// on receiving a client request
 
 bool paxos_replica::req_exist(const request_t& req){
 	//go through all the log
-
+	for (auto i = log.begin(); i != log.end(); ++i)
+	{
+		if (i->req == req)
+			return true;
+	}
+	return false;
 }
 
 int paxos_replica::accept(const order_t& ord) //on receiving a PROPOSAL
@@ -114,6 +119,12 @@ int paxos_replica::process()
 	}
 }
 
+//REQUESTDONE:<king>
+int paxos_replica::reply()
+{
+
+}
+
 
 int paxos_replica::coup(){
 	my_king = id;
@@ -123,12 +134,20 @@ int paxos_replica::coup(){
 	...
 }
 
+//OLDKINGISDEAD:<new_king>
 int paxos_replica::follow() //on receiving OLDKINGISDEAD
 {
 	if (couping > 0){ //there is a newer king than me, I shall stop couping
 		couping = 0;
 		pending_req.clear();
 	}
+	string str;
+	str += "LONGLIVETHEKING:"+to_string(id);
+	for (auto i = log.begin(); i != log.end(); ++i){
+		str+=":HIST:"+i->str();
+	}
+	//send str to new king
+	...
 }
 
 int paxos_replica::admit() //on receiving LONGLIVETHEKING
@@ -138,12 +157,43 @@ int paxos_replica::admit() //on receiving LONGLIVETHEKING
 
 
 
-order_t paxos_replica::order_parse(const string& str)
+//<view>:<seq>:requset_string
+order_t::order_t(const string& str)
 {
+	int pos0 = str.find(":");
+	view = stoi(str.substr(0,pos0));
 
-	assert(view < id); //no one after me can be a king if I am alive.
+	int pos1 = str.find(":", pos0+1);
+	seq = stoi(str.substr(pos0+1, pos1-pos0-1));
+
+	req = request_t(str.substr(pos1+1))
+}
+string order_t::str()
+{
+	return to_string(view) +":"+ to_string(seq) +":"+ req.str();
 }
 
+//<client_id>:<client_seq>:<client_ip>:<client_port>:msg
+request_t::request_t(const string& str)
+{
+	int pos0 = str.find(":");
+	client_id = stoi(str.substr(0,pos0));
 
+	int pos1 = str.find(":", pos0+1);
+	client_seq = stoi(str.substr(pos0+1, pos1-pos0-1));
 
-request_t paxos_replica::req_parse(const string& str);
+	int pos2 = str.find(":", pos1+1);
+	client_ip_str = str.substr(pos1+1, pos2-pos1-1);
+
+	int pos3 = str.find(":", pos2+1);
+	client_port = stoi(str.substr(pos2+1, pos3-pos2-1));
+
+	int pos4 = str.find(":", pos3+1);
+	msg = str.substr(pos4+1);
+}
+string request_t::str()
+{
+	return to_string(client_id) +":"+ to_string(client_seq) +":"+ 
+		client_ip_str +":"+ to_string(client_port) +":"+ msg;
+}
+
