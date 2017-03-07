@@ -1,0 +1,71 @@
+﻿int exe upperbound
+int king
+vector [seq] -> king，message
+map [client_id, client_seq] -> seq
+certificate set [seq] -> set<id>
+
+CLIENTREQ: client ip@port: client_id: client_seq: msg
+	if I am not king
+		old_king_is_dead();
+	//I am the king
+	if (client_id, client,seq) has been proposed
+		do nothing
+	else
+		assign the seq_num
+		broadcast PROPOSAL to all other replica
+
+PROPOSAL: seq_num: king: client ip@port: client_id: client_seq: msg
+accept():
+	if source is newer king: source > my_king
+		follow the new king: long_live_the_king(new king)
+	if source is a old/dead king: source < my_king 
+		//this should not happen because everyone before my king should be dead
+		ignore the proposal
+	if this proposal is from a more resent proposer: source > hist[seq].king
+		hist[seq].king = source
+		if history hist[seq].message != current_message
+			update (client_id, client,seq) map
+			replace the history hist[seq].message = current_message		
+			clear the certificate set
+			add self to certificate set
+		broadcast ACCEPT to other replicas
+	else if source == hist[seq].king, but msg != hist[seq].msg
+		ERROR
+	else
+		do nothing
+
+ACCEPT: seq_num: king: client ip@port: client_id: client_seq: msg
+learn():
+	accept();
+	add into certificate set
+	if seq == exe-upperbound //(&& certicate set[seq] == f+1)
+		process()
+
+process():
+	while(cert-set[exe upperbound].size >= f+1){
+		execute(exe upperbound);
+		exe upperbound ++;
+		if i am the king, respond to client
+	}
+
+old-king-is-dead():
+	myking = self
+	broadcast OLDKINGISDEAD: exe upperbound
+
+long-live-the-king():
+	myking = new king
+	send all hist (start from min{exe upperbound,told start point}) to the new king {
+		HIST: seq_num: king: client ip@port: client_id: client_seq: msg	
+	}
+
+LONGLIVETHEKING: king: {HIST}
+admit()
+	update hist according to HIST: chose the most recent proposal 
+		//similar to accept, but don't broadcast
+	if received a quorum f+1
+	couping = 0;//ending couping state
+	decide for each slot
+	re-propose from lowest exe upperbound
+	process every pending client request.
+	
+
