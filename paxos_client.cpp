@@ -45,7 +45,6 @@ int main(int argc, char const *argv[])
 		return 0;
 	}
 
-	vector<sockaddr_in> addr_list;
 
 	int client_id = stoi(argv[1]);
 	int seq = stoi(argv[2]);
@@ -83,12 +82,16 @@ int main(int argc, char const *argv[])
     }
 
 
+
 	int n;
 	cout<<"input number of replicas: "<<endl;
 	cin >> n;
+
+	vector<sockaddr_in> addr_list;
 	addr_list.resize(n);
 	cerr<<"addr_list size = "<<addr_list.size()<<endl;
 	memset(addr_list.data(), 0, addr_list.size()*sizeof(sockaddr_in));
+
 
 	cout<<"input the ip_addr and port_num for all "<<n<<" replicas: "<<endl;
 	for (int i = 0; i < n; ++i)

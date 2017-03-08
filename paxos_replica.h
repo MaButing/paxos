@@ -1,11 +1,13 @@
 #include <vector>
-#include <map>
 #include <set>
-#include "communiactor.h"
+#include "communicator.h"
 #include "ReqOrd.h"
 
+
+#ifndef __PAXOSREPL_H__
+#define __PAXOSREPL_H__
+
 using std::vector;
-using std::map;
 using std::set;
 
 
@@ -14,42 +16,51 @@ using std::set;
 
 class paxos_replica
 {
+private:
 	int n;
 	int f;
 	int id;
 	int my_king;
 	int exe_end;
-	vector<order> log;//seq -> order
+	vector<order_t> log;//seq -> order
 	vector<set<int>> certf;//seq -> certificate_set
 	int x;//number of seq to skip
 	int reprop_begin;//OPTIMIZATION
 
-	communiactor comm;
+	communicator comm;
 
 	//process of view change, the candidate king should not propose client request
 	//because not sure about prevous log/state, cannot make decision: whether assign a new seq_num
-	map<int> couping; //follower in couping process
-	std::vector<request_t> pending_req;
+	set<int> couping; //follower in couping process
+	vector<request_t> pending_req;
 
 	
 
 
-	int propose();
-	int accept();
-	int learn();
+	int recv_req(const request_t& req);
+	bool req_exist(const request_t& req);
+	int propose(order_t& ord, bool bcast);
+	int accept(const order_t& ord, bool bcast);//on receiving a PROPOSAL
+	int learn(const order_t& ord, int accepter); //on receiving ACCEPT
+	int process();
+	int exec(const order_t& ord);
+	int reply(const request_t& req);
 	int coup();
-	int follow();
-	int admit();
+	int follow(int new_king, int reprop_begin); //on receiving OLDKINGISDEAD
+	int admit(int new_king, int follower, const vector<order_t>& hist); //on receiving LONGLIVETHEKING
+
 
 public:
-	paxos_replica():reprop_begin(0),exe_end(0){};
-	paxos_replica(int n_in = 1, int f_in = 0, int id_in = 0):
+	paxos_replica(int n_in = 1, int f_in = 0, int id_in = 0, int x_in = 0):
 	n(n_in), f(f_in), id(id_in),
-	my_king(0),exe_end(0),x(0),reprop_begin(0),
+	my_king(0),exe_end(0),x(x_in),reprop_begin(0),
 	comm(n_in, id_in)
 	{};
-	int init(const vector<sockaddr_in>& addr_list_in);
-	int run();
-	int close();
+
+	int repl_init(const vector<sockaddr_in>& addr_list_in);
+	int repl_run();
+	int repl_close();
 	
 };
+
+#endif
