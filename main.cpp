@@ -6,6 +6,7 @@ using namespace std;
 
 int main(int argc, char const *argv[])
 {
+	if (argc != 3) return0;
 	int n = atoi(argv[1]);
 	int id = atoi(argv[2]);
 
@@ -28,7 +29,7 @@ int main(int argc, char const *argv[])
 	string str;
 	
 	if (id == 0){
-		uint source;
+		int source;
 		while(1){
 			comm.comm_recv(&source, (void*)buff, MAXSENDSIZE);
 			cout<<source<<":"<<buff<<endl;

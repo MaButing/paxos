@@ -27,16 +27,17 @@ typedef char byte;
 class communicator
 {
 private:
-    uint n;
-    uint id;
+    int n;
+    int id;
     int sock;//listening socket
     vector<sockaddr_in> addr_list;
 
 public:
-    
-    int comm_init(uint np, uint pid, const vector<sockaddr_in>& addr_list_in);
-    int comm_send(uint dest_id, void* buff, size_t buff_size);
-    int comm_recv(uint* source_id, void* buff, size_t buff_size);
+	communicator(int n_in = 1, int id_in = 0):n(n_in),id(id_in){};
+    int comm_init(const vector<sockaddr_in>& addr_list_in);
+    int comm_send(int dest_id, void* buff, size_t buff_size);
+    int comm_recv(int* source_id, void* buff, size_t buff_size);
+    int comm_close();
     // int bcast();
     
 };

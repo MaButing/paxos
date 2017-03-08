@@ -10,8 +10,33 @@
 
 #include <vector>
 #include <iostream>
+#include <string>
+
+#include "ReqOrd.h"
+#include "communicator.h"
 
 using namespace std;
+
+//REQUESTDONE:<king>:<client_id>:<client_seq>
+struct response_t
+{
+	int king, client_id, client_seq;
+	response_t(const string& str):
+	king(-1), client_id(-1), client_seq(-1)
+	{
+		int pos0 = str.find(":");
+		if (str.substr(0,pos0) != "REQUESTDONE")
+			return;
+
+		int pos1 = str.find(":", pos0+1);
+		king = stoi(str.substr(pos0+1, pos1-pos0-1));
+
+		int pos2 = str.find(":", pos1+1);
+		client_id = stoi(str.substr(pos1+1, pos2-pos1-1));
+
+		client_seq = stoi(str.substr(pos2+1));
+	}
+};
 
 int main(int argc, char const *argv[])
 {
@@ -22,15 +47,41 @@ int main(int argc, char const *argv[])
 
 	vector<sockaddr_in> addr_list;
 
-	int client_id = atoi(argv[1]);
-	int seq = atoi(argv[2]);
+	int client_id = stoi(argv[1]);
+	int seq = stoi(argv[2]);
 	string client_ip_str;
 	int client_port_num;
 
 	cout<<"init client: "<<endl;
-	cout<<"input client ip_addr"<<endl;
+	cout<<"input client ip_addr & port"<<endl;
 	cin>>client_ip_str;
 	cin>>client_port_num;
+
+
+	sockaddr_in servaddr;
+	memset(&servaddr, 0, sizeof(sockaddr_in));
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(client_port_num);
+	inet_pton(AF_INET, client_ip_str.c_str(), &(servaddr.sin_addr));
+
+	int sock_listen = socket(AF_INET, SOCK_STREAM, 0);
+	if( sock_listen < 0){
+        cerr << "[Error, create listening socket]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+        return -1;
+    }
+
+	if( bind(sock_listen, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1){
+        cerr << "[Error, bind socket]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+        close(sock_listen);
+        return -1;
+    }
+
+    if( listen(sock_listen, SOMAXCONN) == -1){
+        cerr << "[Error, listen socket]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+        close(sock_listen);
+        return -1;
+    }
+
 
 	int n;
 	cout<<"input number of replicas: "<<endl;
@@ -47,7 +98,7 @@ int main(int argc, char const *argv[])
 
 		addr_list[i].sin_family = AF_INET;
     	addr_list[i].sin_port = htons(port);
-    	inet_pton(AF_INET, ip_str, &(addr_list[i].sin_addr));
+    	inet_pton(AF_INET, ip_str.c_str(), &(addr_list[i].sin_addr));
 	}
 
 	int king = 0;
@@ -56,10 +107,16 @@ int main(int argc, char const *argv[])
 	string msg_str;
 	while(1){
 		msg_str.clear();
-		cout<<"enter the message (!q to quit):"<<endl;
+		cout<<"Enter the message (!q to quit):"<<endl;
 		getline(cin, msg_str);
 		if (msg_str == "!q") break;
 
+		request_t req;
+		req.client_id = client_id;
+		req.client_seq = seq;
+		req.client_ip_str = client_ip_str;
+		req.client_port = client_port_num;
+		req.msg = msg_str;
 
 	    for(; king < n; king++){
 
@@ -67,7 +124,7 @@ int main(int argc, char const *argv[])
 
 	    	int sock_send = socket(AF_INET, SOCK_STREAM, 0);
 		    if( sock_send < 0){
-		        cerr << "[send, create socket error]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+		        cerr << "[Error, create sending socket]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
 		        break;
 		    }
 		    if( connect(sock_send, (sockaddr*)(addr_list.data()+king), sizeof(sockaddr)) < 0){
@@ -76,33 +133,36 @@ int main(int argc, char const *argv[])
 		        continue;// move to next replica
 		    }
 			//send
-		    
+		    //CLIENTREQ:<client_id>:<client_seq>:<client_ip>:<client_port>:msg
 
+		    string client_req_str = "CLIENTREQ:"+req.str();
+		    //send msg_len
+		    size_t msg_len = client_req_str.size()+1+sizeof(size_t)+sizeof(int);
+		    int send_len = send(sock_send, &msg_len, sizeof(size_t), MSG_NOSIGNAL);
+		    if (send_len < 0){
+		        cerr << "[send, send msg_size error]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+		        return -1;
+		    }
+		    //send source_id
+		    int source_id = -1*req.client_id;
+		    send_len = send(sock_send, &source_id, sizeof(int), MSG_NOSIGNAL);
+		    if (send_len < 0){
+		        cerr << "[send, send source_id error]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+		        return -1;
+		    }
+
+		    send_len = send(sock_send, client_req_str.c_str(), client_req_str.size()+1, MSG_NOSIGNAL);
+		    if (send_len < 0){
+		        cerr << "[send, send msg error]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+		        return -1;
+		    }
+		    
 			close(sock_send);
 
 
 
-
-
-
 			//wait for respond for time out
-			int sock_listen = socket(AF_INET, SOCK_STREAM, 0);
-			if( sock_listen < 0){
-		        cerr << "[listen, create socket error]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
-		        break;
-		    }
-
-			if( bind(sock_listen, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1){
-		        cerr << "[bind socket error]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
-		        close(sock_listen);
-		        break;
-		    }
-
-		    if( listen(sock_listen, SOMAXCONN) == -1){
-		        cerr << "[listen socket error]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
-		        close(sock_listen);
-		        break;
-		    }
+			
 
 		    fd_set rfds;
 		    FD_ZERO(&rfds);
@@ -110,7 +170,7 @@ int main(int argc, char const *argv[])
 
             int retval = select(sock_listen+1, &rfds, NULL, NULL, &to_len);
             if (retval == -1){
-                cerr << "[select error]"<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+                cerr << "[Error, select]:"<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
                 close(sock_listen);
                 break;
             }
@@ -122,31 +182,63 @@ int main(int argc, char const *argv[])
             }
 
             //accept
-            ockaddr_in clientaddr;
+            sockaddr_in clientaddr;
     		socklen_t peer_addr_size = sizeof(struct sockaddr_in);
+    		int sock_recv;
             if( (sock_recv = accept(sock_listen, (struct sockaddr*)&clientaddr, &peer_addr_size)) == -1){
-		        cerr << "accept socket error: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+		        cerr << "[Error, accept socket]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
 		        return -1;
 		    }
             //receive
 
+		    char buffer[MAXBUFFSIZE];
+		    char *buffer_ptr = buffer;
+		    size_t sum_len = 0;
+		    msg_len = 0;
+
+		    while(1){
+		        int recv_len = recv(sock_recv, buffer_ptr, MAXBUFFSIZE-sum_len, 0);
+		        if (recv_len < 0){
+		            cerr << "recv error: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+		            break;
+		        }
+		        if (recv_len == 0) break;
+		        
+		        sum_len += recv_len;
+		        buffer_ptr = buffer_ptr + recv_len;
+
+		        if (msg_len == 0){
+		            if ( sum_len > 2*sizeof(uint)){
+		                msg_len = *((size_t*) buffer);
+		                source_id = *(((int*)buffer)+1);
+		                //cerr<<"msg_len: "<<msg_len<<",source_id:"<<*source_id<<endl;
+		            }
+		        }
+		        else{ // msg_len > 0
+		            if (sum_len >= msg_len)
+		                break;
+		        }
+		    }
+
+		    //REQUESTDONE:<king>:<client_id>:<client_seq>
+		    string res_str(buffer);
+		    response_t res(res_str);
+		    if (res.client_id == req.client_id && res.client_seq == req.client_seq){
+		    	if (res.king > king) king = res.king;
+		    	close(sock_recv);
+		    	break;
+		    }
 
 
-		    close(sock_recv);
-            close(sock_listen);
-            
-
+		    close(sock_recv); 
 		}
 
 
 		if (king == n){
-			cerr << "all replicas are down, exit!"<<endl;
+			cerr << "all replicas are dead, exit!"<<endl;
 			break;
 		}
-
-		
-		
-
+		seq++;
 	}
 
 
