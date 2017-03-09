@@ -38,7 +38,7 @@ struct request_t
 
 		msg = str.substr(pos4+1);
 	}
-	//<client_id>:<client_seq>:<client_ip>:<client_port>:msg
+	//REQ:<client_id>:<client_seq>:<client_ip>:<client_port>:msg
 	string str() const
 	{
 		return "REQ:"+to_string(client_id) +":"+ to_string(client_seq) +":"+ 
@@ -70,7 +70,7 @@ struct order_t
 
 		req = request_t(str.substr(pos2+1));
 	}
-	//<view>:<seq>:requset_string
+	//ORD:<view>:<seq>:requset_string
 	string str() const
 	{
 		return "ORD:"+to_string(view) +":"+ to_string(seq) +":"+ req.str();

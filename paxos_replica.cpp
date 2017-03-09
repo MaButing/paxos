@@ -133,11 +133,22 @@ int paxos_replica::recv_req(const request_t& req)// on receiving a client reques
 	
 	//create a new log record
 	order_t ord;
-	ord.seq = log.size()+x;//assign new seq_num
+	ord.seq = log.size();//assign new seq_num
 	ord.view = my_king; //my king should be myself
 	ord.req = req;
 
 	accept_learn(ord, id);//assert(id == my king);
+
+	if (x != 0){
+		int temp = log.size();
+		log.resize(temp+x);
+		certf.resize(temp+x);
+		for (int i = temp; i < (int)log.size(); ++i)//forge certification for skipped slots
+			for (int j = 0; j < n; ++j)
+				certf[i].insert(j);
+	}
+
+
 	return 0;
 }
 
