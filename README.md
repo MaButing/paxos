@@ -42,7 +42,7 @@ NOOP<br>
 REQ:1:1:127.0.0.1:6666:def<br>
 NOOP```*not in other logs*```<br>
 NOOP```*not in other logs*```<br>
-```*!!!CRASH!!!*```<br>
+ ``` *!!!CRASH!!!* ```<br>
 <br>
 ========replica 1 log=======<br>
 REQ:1:0:127.0.0.1:6666:abc<br>
