@@ -103,7 +103,10 @@ int main(int argc, char const *argv[])
 	cin.ignore ( numeric_limits<std::streamsize>::max(), '\n' ); 
 	int king = 0;
 
-	timeval to_len = {2, 0};//init timeout length to 2 secend;
+	
+	int wait_second = 5;
+
+
 	string msg_str;
 	while(1){
 		msg_str.clear();
@@ -121,6 +124,7 @@ int main(int argc, char const *argv[])
 	    for(; king < n; king++){
 
 	    	//send message
+	    	cout<<"...Send msg to replica "<<king<<endl;
 
 	    	int sock_send = socket(AF_INET, SOCK_STREAM, 0);
 		    if( sock_send < 0){
@@ -162,81 +166,87 @@ int main(int argc, char const *argv[])
 
 
 			//wait for respond for time out
-			
+			bool replied = false;
 
-		    fd_set rfds;
-		    FD_ZERO(&rfds);
-            FD_SET(sock_listen, &rfds);
+			while(1){
+				
+			    fd_set rfds;
+			    FD_ZERO(&rfds);
+	            FD_SET(sock_listen, &rfds);
 
-            int retval = select(sock_listen+1, &rfds, NULL, NULL, &to_len);
-            if (retval == -1){
-                cerr << "[Error, select]:"<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
-                close(sock_listen);
-                break;
-            }
-            else if (retval == 0){
-            	cerr << "receive timeout, replica "<<king<<"is down."<<endl;
-                if (to_len.tv_sec < 10) to_len.tv_sec *= 2;
-                close(sock_listen);
-                continue; //move to next king
-            }
+	            timeval to_len = {wait_second, 0};
+	            cerr<<"wait for "<<to_len.tv_sec<<" secends"<<endl;
 
-            //accept
-            sockaddr_in clientaddr;
-    		socklen_t peer_addr_size = sizeof(struct sockaddr_in);
-    		int sock_recv;
-            if( (sock_recv = accept(sock_listen, (struct sockaddr*)&clientaddr, &peer_addr_size)) == -1){
-		        cerr << "[Error, accept socket]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
-		        return -1;
-		    }
-            //receive
+	            int retval = select(sock_listen+1, &rfds, NULL, NULL, &to_len);
+	            if (retval == -1){
+	                cerr << "[Error, select]:"<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+	                continue;
+	            }
+	            else if (retval == 0){
+	            	cerr << "receive timeout, replica "<<king<<"is down."<<endl;
+	                if (wait_second < 60) wait_second *= 2;
+	                break; //move to next king
+	            }
 
-		    char buffer[MAXBUFFSIZE];
-		    char *buffer_ptr = buffer;
-		    size_t sum_len = 0;
-		    msg_len = 0;
+	            //accept
+	            sockaddr_in clientaddr;
+	    		socklen_t peer_addr_size = sizeof(struct sockaddr_in);
+	    		int sock_recv;
+	            if( (sock_recv = accept(sock_listen, (struct sockaddr*)&clientaddr, &peer_addr_size)) == -1){
+			        cerr << "[Error, accept socket]: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+			        return -1;
+			    }
+	            //receive
 
-		    while(1){
-		        int recv_len = recv(sock_recv, buffer_ptr, MAXBUFFSIZE-sum_len, 0);
-		        if (recv_len < 0){
-		            cerr << "recv error: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
-		            break;
-		        }
-		        if (recv_len == 0) break;
-		        
-		        sum_len += recv_len;
-		        buffer_ptr = buffer_ptr + recv_len;
+			    char buffer[MAXBUFFSIZE];
+			    char *buffer_ptr = buffer;
+			    size_t sum_len = 0;
+			    msg_len = 0;
 
-		        if (msg_len == 0){
-		            if ( sum_len > 2*sizeof(uint)){
-		                msg_len = *((size_t*) buffer);
-		                source_id = *(((int*)buffer)+1);
-		                //cerr<<"msg_len: "<<msg_len<<",source_id:"<<*source_id<<endl;
-		            }
-		        }
-		        else{ // msg_len > 0
-		            if (sum_len >= msg_len)
-		                break;
-		        }
-		    }
+			    while(1){
+			        int recv_len = recv(sock_recv, buffer_ptr, MAXBUFFSIZE-sum_len, 0);
+			        if (recv_len < 0){
+			            cerr << "recv error: "<<strerror(errno)<<"(errno: "<<errno<<")"<<endl;
+			            break;
+			        }
+			        if (recv_len == 0) break;
+			        
+			        sum_len += recv_len;
+			        buffer_ptr = buffer_ptr + recv_len;
 
-		    //REQUESTDONE:<king>:<client_id>:<client_seq>
-		    string res_str(buffer+sizeof(size_t)+sizeof(int));
-		    cerr<<res_str<<endl;
-		    response_t res(res_str);
-		    if (res.client_id == req.client_id && res.client_seq == req.client_seq){
-		    	if (res.king > king) king = res.king;
-		    	close(sock_recv);
-		    	break;
-		    }
+			        if (msg_len == 0){
+			            if ( sum_len > 2*sizeof(uint)){
+			                msg_len = *((size_t*) buffer);
+			                source_id = *(((int*)buffer)+1);
+			                //cerr<<"msg_len: "<<msg_len<<",source_id:"<<*source_id<<endl;
+			            }
+			        }
+			        else{ // msg_len > 0
+			            if (sum_len >= msg_len)
+			                break;
+			        }
+			    }
 
+			    //REQUESTDONE:<king>:<client_id>:<client_seq>
+			    string res_str(buffer+sizeof(size_t)+sizeof(int));
+			    cerr<<res_str<<endl;
+			    response_t res(res_str);
+			    if (res.client_id == req.client_id && res.client_seq == req.client_seq){
+			    	if (res.king > king) king = res.king;
+			    	close(sock_recv);
+			    	replied = true;
+			    	break;
+			    }
+			    
+			    if (replied) break;
+			}
 
-		    close(sock_recv); 
+		    if (replied) break;
 		}
 
 
 		if (king == n){
-			cerr << "all replicas are dead, exit!"<<endl;
+			cerr << "system not alive, exit!"<<endl;
 			break;
 		}
 		seq++;

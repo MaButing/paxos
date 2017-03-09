@@ -34,11 +34,11 @@ int paxos_replica::repl_run()
 	cout<<"replica running"<<endl;
 	char buff[MAXSENDSIZE];
 	while(1){
-		cerr<<"recv: ";
+		cout<<"recv: ";
 		int source_id;
 		comm.comm_recv(&source_id, buff, MAXSENDSIZE);
 		string str(buff);
-		cerr<< str <<endl;
+		cout<< str <<endl;
 
 		size_t pos0 = str.find(":");
 		string type = str.substr(0, pos0);
@@ -105,7 +105,7 @@ int paxos_replica::repl_run()
 bool paxos_replica::req_exist(const request_t& req)
 {
 	//go through all the log
-	// cerr<<"req_exist"<<endl;
+	// cout<<"req_exist"<<endl;
 
 	for (auto i = log.begin(); i != log.end(); ++i)
 	{
@@ -119,11 +119,12 @@ bool paxos_replica::req_exist(const request_t& req)
 int paxos_replica::recv_req(const request_t& req)// on receiving a client request
 {
 	//I am not the king, but I shall be the king, because client(god) want me to.
-	cerr<<"recv_req: "<<req.str()<<endl;
+	cout<<"recv_req: "<<req.str()<<endl;
 	if (my_king < id)
 		coup();
 
 	if (!couping.empty()){
+		cout<<"\tpending_req: "<<req.str()<<endl;
 		pending_req.push_back(req);
 		return 0;
 	}
@@ -142,6 +143,10 @@ int paxos_replica::recv_req(const request_t& req)// on receiving a client reques
 	if (x != 0){
 		int temp = log.size();
 		log.resize(temp+x);
+		for (int i = temp; i < (int)log.size(); ++i){
+			log[i].seq = i;
+			log[i].view = id;
+		}
 		certf.resize(temp+x);
 		for (int i = temp; i < (int)log.size(); ++i)//forge certification for skipped slots
 			for (int j = 0; j < n; ++j)
@@ -157,7 +162,7 @@ int paxos_replica::recv_req(const request_t& req)// on receiving a client reques
 
 int paxos_replica::bcast_order(const order_t& ord)
 {
-	cerr<<"bcast_order: "<<ord.str()<<endl;
+	cout<<"bcast_order: "<<ord.str()<<endl;
 
 	string str = "ORDER:"+to_string(id)+":"+ord.str();
 	for (int i = 0; i < n; ++i){
@@ -201,13 +206,14 @@ int paxos_replica::update_log(const order_t& ord)
 //ORDER:<sender_id>:order_str
 int paxos_replica::accept_learn(const order_t& ord, int sender_id) //on receiving a PROPOSAL
 {
-	cerr<<"accept_learn: "<<ord.str()<<endl;
+	
 	if (ord.view < my_king)//from a old/dead king
 		return 0;//ignore
 
-	//???
+	cout<<"accept_learn: "<<ord.str()<<endl;
+
 	if (ord.seq < exe_end)//executed
-		return 0;//ignore
+		assert(ord.req == log[ord.seq].req);
 
 	if (ord.view > my_king) //there is new king
 		follow(ord.view, reprop_begin); //follow the new king
@@ -216,7 +222,7 @@ int paxos_replica::accept_learn(const order_t& ord, int sender_id) //on receivin
 		bcast_order(ord);
 	}
 
-	certf[ord.seq].insert(sender_id);//accepter should not be self, even it is, doesn't matter
+	certf[ord.seq].insert(sender_id);//sender should not be self, even it is, doesn't matter
 	if (certf[ord.seq].size() == (size_t)f+1 && ord.seq == exe_end)
 		process();
 
@@ -226,13 +232,14 @@ int paxos_replica::accept_learn(const order_t& ord, int sender_id) //on receivin
 
 int paxos_replica::process()
 {
-	cerr<<"process"<<endl;
-	for (int seq = exe_end; seq < (int)log.size(); ++seq)
+	cout<<"process"<<endl;
+	for (int i = exe_end; i < (int)log.size(); ++i)
 	{
-		if (certf[seq].size() >= (size_t)f+1){
-			exec(log[seq]);
-			if (id == my_king) 
-				reply(log[seq].req);//if I am the king
+		if (log[i].view < my_king) break;//???do not exec outdated log
+		if (certf[i].size() >= (size_t)f+1){
+			exec(log[i]);
+			if (id == my_king && !(log[i].req == request_t())) 
+				reply(log[i].req);//if I am the king
 			exe_end++;
 		}
 		else
@@ -243,10 +250,14 @@ int paxos_replica::process()
 
 int paxos_replica::exec(const order_t& ord)
 {
-	cerr<<"exec "<<ord.seq<<endl;
+	assert(ord.view == my_king);
+	cout<<"exec "<<ord.seq<<endl;
 	string log_name = "Log_"+to_string(id)+".txt";
 	ofstream ofs(log_name.c_str(), ofstream::app);
-	ofs << ord.req.str() << endl;
+	if (ord.req == request_t())
+		ofs << "NOOP" << endl;
+	else 
+		ofs << ord.req.str() << endl;
 	ofs.close();
 	return 0;
 }
@@ -254,7 +265,7 @@ int paxos_replica::exec(const order_t& ord)
 //REQUESTDONE:<king>:<client_id>:<client_seq>
 int paxos_replica::reply(const request_t& req)
 {
-	cerr<<"reply "<<req.str()<<endl;
+	cout<<"reply "<<req.str()<<endl;
 	sockaddr_in clientaddr;
 	memset(&clientaddr, 0, sizeof(sockaddr_in));
 	clientaddr.sin_family = AF_INET;
@@ -302,7 +313,7 @@ int paxos_replica::reply(const request_t& req)
 
 int paxos_replica::coup()
 {
-	cerr<<"coup"<<endl;
+	cout<<"coup"<<endl;
 
 	my_king = id;
 	couping.insert(id);//myself
@@ -324,11 +335,11 @@ int paxos_replica::coup()
 //OLDKINGISDEAD:<new_king>:<reprop_begin>
 int paxos_replica::follow(int new_king, int reprop_begin) //on receiving OLDKINGISDEAD
 {
-	cerr<<"follow "<<new_king<<endl;
-
 	if (new_king < my_king)//from a old/dead king
 		return 0;//ignore
 	
+	cout<<"follow "<<new_king<<endl;
+
 	if (!couping.empty()){ //there is a newer king than me, I shall abandon couping
 		couping.clear();
 		pending_req.clear();
@@ -359,7 +370,7 @@ int paxos_replica::follow(int new_king, int reprop_begin) //on receiving OLDKING
 //LONGLIVETHEKING:<new_king>:<follower>:{HIST:order_str}
 int paxos_replica::admit(int new_king, int follower, const vector<order_t>& hist) //on receiving LONGLIVETHEKING
 {
-	cerr<<"admit "<<follower<<endl;
+	cout<<"admit "<<follower<<endl;
 
 	if (couping.empty())//not couping
 		return 0;//ignore
@@ -378,13 +389,16 @@ int paxos_replica::admit(int new_king, int follower, const vector<order_t>& hist
 
 
 	if (couping.size() >= (size_t)f+1){
+		cout<<"coup success"<<endl;
 		//finish couping;
 		couping.clear();
 		//repropose
+		assert(log.size() == certf.size());
 		for (int i = 0; i < (int)log.size(); ++i){
 			if (log[i].seq == -1){//empty slot
 				log[i].seq = i;
 				log[i].view = my_king;
+				certf[i].insert(id);
 			}
 			else{
 				assert(log[i].seq == i);
