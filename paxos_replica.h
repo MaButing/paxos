@@ -39,9 +39,9 @@ private:
 
 	int recv_req(const request_t& req);
 	bool req_exist(const request_t& req);
-	int propose(order_t& ord, bool bcast);
-	int accept(const order_t& ord, bool bcast);//on receiving a PROPOSAL
-	int learn(const order_t& ord, int accepter); //on receiving ACCEPT
+	int bcast_order(const order_t& ord);
+	int update_log(const order_t& ord);
+	int accept_learn(const order_t& ord, int source_id);//on receiving a PROPOSAL
 	int process();
 	int exec(const order_t& ord);
 	int reply(const request_t& req);

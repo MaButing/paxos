@@ -3,6 +3,7 @@
 #include <fstream>
 
 using std::ofstream;
+using std::cout;
 
 
 
@@ -11,7 +12,12 @@ int paxos_replica::repl_init(const vector<sockaddr_in>& addr_list_in)
 	if (comm.comm_init(addr_list_in) != 0)
 		return -1;
 
-	if (n >= 3*f+1)
+	string log_name = "Log_"+to_string(id)+".txt";
+	ofstream ofs(log_name.c_str(), ofstream::out);
+	ofs << "========replica "<<id<<" log=======" << endl;
+	ofs.close();
+
+	if (n >= 2*f+1)
 		return 0;
 	else
 		return -1;
@@ -25,11 +31,15 @@ int paxos_replica::repl_close()
 
 int paxos_replica::repl_run()
 {
+	cout<<"replica running"<<endl;
 	char buff[MAXSENDSIZE];
 	while(1){
+		cerr<<"recv: ";
 		int source_id;
 		comm.comm_recv(&source_id, buff, MAXSENDSIZE);
 		string str(buff);
+		cerr<< str <<endl;
+
 		size_t pos0 = str.find(":");
 		string type = str.substr(0, pos0);
 		//CLIENTREQ:request_str
@@ -40,28 +50,20 @@ int paxos_replica::repl_run()
 			recv_req(req);
 
 		}
-		//PROPOSAL:<king>:order_str
-		else if (type == "PROPOSAL"){
+		//ORDER:<sender_id>:order_str
+		else if (type == "ORDER"){
 			size_t pos1 = str.find(":", pos0+1);
-			int king = stoi(str.substr(pos0+1, pos1-pos0-1));
+			int sender_id = stoi(str.substr(pos0+1, pos1-pos0-1));
+			assert(source_id == sender_id);
 			string ord_str = str.substr(pos1+1);
 			order_t ord(ord_str);
-			assert(king == source_id);
-			assert(king == ord.view);
-			accept(ord, true);
-		}
-		//ACCEPT:<accepter>:order_str
-		else if (type == "ACCEPT"){
-			size_t pos1 = str.find(":", pos0+1);
-			int accepter = stoi(str.substr(pos0+1, pos1-pos0-1));
-			string ord_str = str.substr(pos1+1);
-			order_t ord(ord_str);
-			learn(ord, accepter);
+			accept_learn(ord, sender_id);
 		}
 		//OLDKINGISDEAD:<new_king>:<reprop_begin>
 		else if (type == "OLDKINGISDEAD"){
 			size_t pos1 = str.find(":", pos0+1);
 			int new_king = stoi(str.substr(pos0+1, pos1-pos0-1));
+			assert(source_id == new_king);
 			size_t pos2 = str.find(":", pos1+1);
 			int reprop_begin = stoi(str.substr(pos1+1, pos2-pos1-1));
 			follow(new_king, reprop_begin);
@@ -77,10 +79,10 @@ int paxos_replica::repl_run()
 
 			vector<order_t> hist;
 			size_t hist_end = 0;
-			size_t hist_begin = str.find("HIST:", hist_end);
+			size_t hist_begin = str.find("ORD:", hist_end);
 			while(hist_begin != string::npos){
-				hist_end = str.find("HIST:", hist_begin+5);
-				string ord_str = str.substr(hist_begin+5, hist_end - hist_begin - 5);
+				hist_end = str.find("ORD:", hist_begin+4);
+				string ord_str = str.substr(hist_begin, hist_end - hist_begin);
 				hist.push_back(order_t(ord_str));
 
 				hist_begin = hist_end;
@@ -100,17 +102,24 @@ int paxos_replica::repl_run()
 
 
 
+bool paxos_replica::req_exist(const request_t& req)
+{
+	//go through all the log
+	// cerr<<"req_exist"<<endl;
 
-
-
-
-
-
+	for (auto i = log.begin(); i != log.end(); ++i)
+	{
+		if (i->req == req)
+			return true;
+	}
+	return false;
+}
 
 //CLIENTREQ:request_str
 int paxos_replica::recv_req(const request_t& req)// on receiving a client request
 {
 	//I am not the king, but I shall be the king, because client(god) want me to.
+	cerr<<"recv_req: "<<req.str()<<endl;
 	if (my_king < id)
 		coup();
 
@@ -128,114 +137,91 @@ int paxos_replica::recv_req(const request_t& req)// on receiving a client reques
 	ord.view = my_king; //my king should be myself
 	ord.req = req;
 
-	propose(ord, true);
+	accept_learn(ord, id);//assert(id == my king);
 	return 0;
 }
 
 
-bool paxos_replica::req_exist(const request_t& req)
+
+
+int paxos_replica::bcast_order(const order_t& ord)
 {
-	//go through all the log
-	for (auto i = log.begin(); i != log.end(); ++i)
-	{
-		if (i->req == req)
-			return true;
+	cerr<<"bcast_order: "<<ord.str()<<endl;
+
+	string str = "ORDER:"+to_string(id)+":"+ord.str();
+	for (int i = 0; i < n; ++i){
+		if (i == id) continue;
+		comm.comm_send(i, (void*)str.c_str(), str.size()+1);
 	}
-	return false;
+
+	return 0;
 }
 
-int paxos_replica::propose(order_t& ord, bool bcast)
+int paxos_replica::update_log(const order_t& ord)
 {
-	
-	assert(ord.view >= log[ord.seq].view);//should be a newer older
-	assert(my_king >= ord.view);// before propose ord, I should updated my view
-	assert(my_king == id);// I can propose iff I am king
-
-	ord.view = my_king;
-	log[ord.seq] = ord;
-	
-	if (bcast){//broadcast to other replicas
-		string str = "PROPOSAL:"+to_string(id)+":"+ord.str();
-		for (int i = 0; i < n; ++i){
-			comm.comm_send(i, (void*)str.c_str(), str.size()+1);
+	if (ord.seq < (int)log.size()){// an seen order
+		if (ord.view > log[ord.seq].view){ // a newer version
+			/*OPTIMIZATION*/
+			// if (ord.req == log[ord.seq].req){
+			// 	log[ord.seq].view = ord.view;
+			// }
+			// else{
+			// 	log[ord.seq] = ord;
+			// 	certf[ord.seq].clear();
+			// 	certf[ord.seq].insert(id);
+			// }
+			/**************/
+			log[ord.seq] = ord;
+			certf[ord.seq].clear();
+			certf[ord.seq].insert(id);
 		}
+		else
+			return -1;
 	}
-
+	else{//a new order
+		log.resize(ord.seq+1);
+		certf.resize(ord.seq+1);
+		log[ord.seq] = ord;
+		certf[ord.seq].insert(id);
+	}
 	return 0;
 }
 
-//PROPOSAL:<king>:order_str
-int paxos_replica::accept(const order_t& ord, bool bcast) //on receiving a PROPOSAL
+//ORDER:<sender_id>:order_str
+int paxos_replica::accept_learn(const order_t& ord, int sender_id) //on receiving a PROPOSAL
 {
+	cerr<<"accept_learn: "<<ord.str()<<endl;
 	if (ord.view < my_king)//from a old/dead king
 		return 0;//ignore
+
+	//???
 	if (ord.seq < exe_end)//executed
 		return 0;//ignore
 
 	if (ord.view > my_king) //there is new king
 		follow(ord.view, reprop_begin); //follow the new king
 	
-	if (ord.seq >= (int)log.size())//a new seq_num
-		log[ord.seq] = ord;
-	else{//received same seq before,
-		if (ord.view < log[ord.seq].view) //expired order
-			return 0; //ignore the order
-
-		else if ((ord.view == log[ord.seq].view)){
-			assert(ord.req == log[ord.seq].req);// ?? NEED TO DEF operater==() ?? 
-			return 0;
-		}
-		else //(ord.view > log[ord.seq].view) //order from a newer king
-		{ 
-			
-			log[ord.seq] = ord;
-			certf[ord.seq].clear();
-			certf[ord.seq].insert(id);
-
-			/****OPTIMIZATION****/
-			// log[ord.seq].view = ord.view;
-			// if (log[ord.seq].req != ord.req)// ?? NEED TO DEF operater!=() ?? 
-			// {
-			// 	log[ord.seq] = ord;
-			// 	certf[ord.seq].clear();
-			// 	certf[ord.seq].insert(id);
-			// }
-			/********************/
-		}	
+	if (update_log(ord) == 0){//I accept the order
+		bcast_order(ord);
 	}
 
-	if (bcast){//broadcast ACCEPT to other replicas
-		string str = "ACCEPT:"+to_string(id)+":"+ord.str();
-		for (int i = 0; i < n; ++i){
-			comm.comm_send(i, (void*)str.c_str(), str.size()+1);
-		}
-	}
-
-	return 0;
-}
-
-//ACCEPT:<accepter>:order_str
-int paxos_replica::learn(const order_t& ord, int accepter) //on receiving ACCEPT
-{
-	if (ord.view < log[ord.seq].view) //expired order
-		return 0; //ignore the order
-	if (ord.seq < exe_end)//executed
-		return 0;//ignore
-	accept(ord, true);
-	certf[ord.seq].insert(accepter);//accepter should not be self, even it is, doesn't matter
+	certf[ord.seq].insert(sender_id);//accepter should not be self, even it is, doesn't matter
 	if (certf[ord.seq].size() == (size_t)f+1 && ord.seq == exe_end)
 		process();
 
 	return 0;
 }
 
+
 int paxos_replica::process()
 {
+	cerr<<"process"<<endl;
 	for (int seq = exe_end; seq < (int)log.size(); ++seq)
 	{
 		if (certf[seq].size() >= (size_t)f+1){
 			exec(log[seq]);
-			reply(log[seq].req);//if I am the king
+			if (id == my_king) 
+				reply(log[seq].req);//if I am the king
 			exe_end++;
 		}
 		else
@@ -246,8 +232,9 @@ int paxos_replica::process()
 
 int paxos_replica::exec(const order_t& ord)
 {
+	cerr<<"exec "<<ord.seq<<endl;
 	string log_name = "Log_"+to_string(id)+".txt";
-	ofstream ofs(log_name.c_str(), std::ofstream::out);
+	ofstream ofs(log_name.c_str(), ofstream::app);
 	ofs << ord.req.str() << endl;
 	ofs.close();
 	return 0;
@@ -256,6 +243,7 @@ int paxos_replica::exec(const order_t& ord)
 //REQUESTDONE:<king>:<client_id>:<client_seq>
 int paxos_replica::reply(const request_t& req)
 {
+	cerr<<"reply "<<req.str()<<endl;
 	sockaddr_in clientaddr;
 	memset(&clientaddr, 0, sizeof(sockaddr_in));
 	clientaddr.sin_family = AF_INET;
@@ -303,6 +291,8 @@ int paxos_replica::reply(const request_t& req)
 
 int paxos_replica::coup()
 {
+	cerr<<"coup"<<endl;
+
 	my_king = id;
 	couping.insert(id);//myself
 	// pending_req.clear();
@@ -313,6 +303,7 @@ int paxos_replica::coup()
 	//broadcast OLDKINGISDEAD
 	string str = "OLDKINGISDEAD:"+to_string(my_king)+":"+to_string(reprop_begin);
 	for (int i = 0; i < n; ++i){
+		if (i == id) continue;
 		comm.comm_send(i, (void*)str.c_str(), str.size()+1);
 	}
 
@@ -322,6 +313,8 @@ int paxos_replica::coup()
 //OLDKINGISDEAD:<new_king>:<reprop_begin>
 int paxos_replica::follow(int new_king, int reprop_begin) //on receiving OLDKINGISDEAD
 {
+	cerr<<"follow "<<new_king<<endl;
+
 	if (new_king < my_king)//from a old/dead king
 		return 0;//ignore
 	
@@ -332,10 +325,10 @@ int paxos_replica::follow(int new_king, int reprop_begin) //on receiving OLDKING
 
 	my_king = new_king;
 	string str;
-	str += "LONGLIVETHEKING:"+to_string(my_king)+to_string(id);
+	str += "LONGLIVETHEKING:"+to_string(my_king)+":"+to_string(id);
 	
 	for (auto i = log.begin(); i != log.end(); ++i){
-		str+=":HIST:"+i->str();
+		str+=i->str();
 	}
 	/****OPTIMIZATION****/
 	// int min = reprop_begin < exe_end? reprop_begin: exe_end;//smaller one
@@ -350,9 +343,13 @@ int paxos_replica::follow(int new_king, int reprop_begin) //on receiving OLDKING
 	return 0;
 }
 
+
+
 //LONGLIVETHEKING:<new_king>:<follower>:{HIST:order_str}
 int paxos_replica::admit(int new_king, int follower, const vector<order_t>& hist) //on receiving LONGLIVETHEKING
 {
+	cerr<<"admit "<<follower<<endl;
+
 	if (couping.empty())//not couping
 		return 0;//ignore
 	if (new_king < my_king)//not follow me(my_king)
@@ -364,7 +361,8 @@ int paxos_replica::admit(int new_king, int follower, const vector<order_t>& hist
 		// if (i->seq < reprop_begin) 
 		// 	reprop_begin = i->seq;
 		/********************/
-		accept(*i, false);
+		if (update_log(*i)==0)
+			certf[i->seq].insert(follower);
 	}
 
 
@@ -381,7 +379,7 @@ int paxos_replica::admit(int new_king, int follower, const vector<order_t>& hist
 				assert(log[i].seq == i);
 				log[i].view = my_king;//should be me
 			}
-			propose(log[i], true);
+			bcast_order(log[i]);
 		}
 		/****OPTIMIZATION****/
 		// for (int i = reprop_begin; i < log.size(); ++i){

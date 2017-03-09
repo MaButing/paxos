@@ -11,6 +11,7 @@
 #include <vector>
 #include <iostream>
 #include <string>
+#include <limits>
 
 #include "ReqOrd.h"
 #include "communicator.h"
@@ -40,22 +41,18 @@ struct response_t
 
 int main(int argc, char const *argv[])
 {
-	if (argc != 3){
-		cerr<<"usage: "<<argv[0]<<" <client_id> <client_seq(default 0)>"<<endl;
+	if (argc != 5){
+		cerr<<"usage: "<<argv[0]<<" <client_id> <client_seq(default 0)> <client_ip> <client_port>"<<endl;
 		return 0;
 	}
 
 
 	int client_id = stoi(argv[1]);
 	int seq = stoi(argv[2]);
-	string client_ip_str;
-	int client_port_num;
+	string client_ip_str = argv[3];
+	int client_port_num = stoi(argv[4]);
 
 	cout<<"init client: "<<endl;
-	cout<<"input client ip_addr & port"<<endl;
-	cin>>client_ip_str;
-	cin>>client_port_num;
-
 
 	sockaddr_in servaddr;
 	memset(&servaddr, 0, sizeof(sockaddr_in));
@@ -103,10 +100,10 @@ int main(int argc, char const *argv[])
     	addr_list[i].sin_port = htons(port);
     	inet_pton(AF_INET, ip_str.c_str(), &(addr_list[i].sin_addr));
 	}
-
+	cin.ignore ( numeric_limits<std::streamsize>::max(), '\n' ); 
 	int king = 0;
 
-	timeval to_len = {1, 0};//init timeout length to 1 secend;
+	timeval to_len = {2, 0};//init timeout length to 2 secend;
 	string msg_str;
 	while(1){
 		msg_str.clear();
@@ -224,7 +221,8 @@ int main(int argc, char const *argv[])
 		    }
 
 		    //REQUESTDONE:<king>:<client_id>:<client_seq>
-		    string res_str(buffer);
+		    string res_str(buffer+sizeof(size_t)+sizeof(int));
+		    cerr<<res_str<<endl;
 		    response_t res(res_str);
 		    if (res.client_id == req.client_id && res.client_seq == req.client_seq){
 		    	if (res.king > king) king = res.king;

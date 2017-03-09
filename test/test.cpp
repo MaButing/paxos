@@ -1,13 +1,14 @@
-#include <vector>
-#include <algorithm>
 #include <iostream>
-
-using namespace std;
-
-int main(int argc, char const *argv[])
+#include <vector>
+int main()
 {
-	int list[] = {1,2,3,4,5,6,7};
-	vector<int> v (list, list+7);
-	cout<< find(v.begin(), v.end(), 6) - v.begin()<<endl;
-	return 0;
+    std::vector<int> c = {1, 2, 3};
+    std::cout << "The vector holds: ";
+    for(auto& el: c) std::cout << el << ' ';
+    std::cout << '\n';
+    c[4] = 1;
+    std::cout <<c.size()<< '\n';
+    std::cout << "After resize up 5: ";
+    for(auto& el: c) std::cout << el << ' ';
+    std::cout << '\n';
 }
