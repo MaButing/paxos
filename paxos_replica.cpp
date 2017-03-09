@@ -251,13 +251,13 @@ int paxos_replica::process()
 int paxos_replica::exec(const order_t& ord)
 {
 	assert(ord.view == my_king);
-	cout<<"exec "<<ord.seq<<endl;
+	cout<<"exec "<<ord.str()<<endl;
+	if (ord.req == request_t()) 
+		return 0;
+	
 	string log_name = "Log_"+to_string(id)+".txt";
 	ofstream ofs(log_name.c_str(), ofstream::app);
-	if (ord.req == request_t())
-		ofs << "NOOP" << endl;
-	else 
-		ofs << ord.req.str() << endl;
+	ofs << ord.req.str() << endl;
 	ofs.close();
 	return 0;
 }
