@@ -29,37 +29,3 @@ Follow the instructions to input the replicas' addresses.
 The log file of replica (execution result) is named as ChatLog_\<id\>.txt
 
 
-### Comment:
-
-The only inconsistentency in ChatLog could be the postfix NOOPs. <BR>
-Beacause of the skipping mechanism, other replicas don't know their existence.<br>
-e.g.<br>
-<br>
-========replica 0 log=======<br>
-REQ:1:0:127.0.0.1:6666:abc<br>
-NOOP<br>
-NOOP<br>
-REQ:1:1:127.0.0.1:6666:def<br>
-NOOP```*not in other logs*```<br>
-NOOP```*not in other logs*```<br>
- ``` *!!!CRASH!!!* ```<br>
-<br>
-========replica 1 log=======<br>
-REQ:1:0:127.0.0.1:6666:abc<br>
-NOOP<br>
-NOOP<br>
-REQ:1:1:127.0.0.1:6666:def<br>
-```*VIEW CHANGE(new primary)*```<br>
-REQ:1:2:127.0.0.1:6666:ijk<br>
-REQ:1:3:127.0.0.1:6666:xyz<br>
-REQ:1:4:127.0.0.1:6666:hhh<br>
-<br>
-========replica 2 log=======<br>
-REQ:1:0:127.0.0.1:6666:abc<br>
-NOOP<br>
-NOOP<br>
-REQ:1:1:127.0.0.1:6666:def<br>
-```*VIEW CHANGE*```<br>
-REQ:1:2:127.0.0.1:6666:ijk<br>
-REQ:1:3:127.0.0.1:6666:xyz<br>
-REQ:1:4:127.0.0.1:6666:hhh<br>

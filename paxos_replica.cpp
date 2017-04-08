@@ -140,18 +140,20 @@ int paxos_replica::recv_req(const request_t& req)// on receiving a client reques
 
 	accept_learn(ord, id);//assert(id == my king);
 
-	if (x != 0){
-		int temp = log.size();
-		log.resize(temp+x);
-		for (int i = temp; i < (int)log.size(); ++i){
-			log[i].seq = i;
-			log[i].view = id;
-		}
-		certf.resize(temp+x);
-		for (int i = temp; i < (int)log.size(); ++i)//forge certification for skipped slots
-			for (int j = 0; j < n; ++j)
-				certf[i].insert(j);
-	}
+	// if (x != 0){
+	// 	// int temp = log.size();
+	// 	// log.resize(temp+x);
+	// 	// for (int i = temp; i < (int)log.size(); ++i){
+	// 	// 	log[i].seq = i;
+	// 	// 	log[i].view = id;
+	// 	// }
+	// 	// certf.resize(temp+x);
+	// 	// for (int i = temp; i < (int)log.size(); ++i)//forge certification for skipped slots
+	// 	// 	for (int j = 0; j < n; ++j)
+	// 	// 		certf[i].insert(j);	
+	// }
+	if (log.size() == (uint)x)
+			log.push_back(order_t());
 
 
 	return 0;
